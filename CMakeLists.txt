@@ -16,7 +16,9 @@ if(WIN32)
 endif()
 
 include(sources.cmake)
-include(cmake/go.cmake)
+if(boringssl_BUILD_TESTS)
+  include(cmake/go.cmake)
+endif()
 include(cmake/paths.cmake)
 include(cmake/perlasm.cmake)
 

@@ -1,7 +1,7 @@
 add_subdirectory(fipsmodule)
 
 if(boringssl_BUILD_TESTS)
-  add_subdirectory(test)
+add_subdirectory(test)
 endif()
 
 if(FIPS_DELOCATE OR FIPS_SHARED)
@@ -32,37 +32,6 @@ perlasm(CRYPTO_SOURCES x86_64 chacha/chacha-x86_64 chacha/asm/chacha-x86_64.pl)
 perlasm(CRYPTO_SOURCES x86_64 cipher_extra/aes128gcmsiv-x86_64 cipher_extra/asm/aes128gcmsiv-x86_64.pl)
 perlasm(CRYPTO_SOURCES x86_64 cipher_extra/chacha20_poly1305_x86_64 cipher_extra/asm/chacha20_poly1305_x86_64.pl)
 perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 test/asm/trampoline-x86_64.pl)
-
-add_custom_command(
-  OUTPUT err_data.c
-  COMMAND ${GO_EXECUTABLE} run err_data_generate.go > ${CMAKE_CURRENT_BINARY_DIR}/err_data.c
-  DEPENDS
-  err/err_data_generate.go
-  err/asn1.errordata
-  err/bio.errordata
-  err/bn.errordata
-  err/cipher.errordata
-  err/conf.errordata
-  err/dh.errordata
-  err/digest.errordata
-  err/dsa.errordata
-  err/ecdh.errordata
-  err/ecdsa.errordata
-  err/ec.errordata
-  err/engine.errordata
-  err/evp.errordata
-  err/hkdf.errordata
-  err/obj.errordata
-  err/pem.errordata
-  err/pkcs7.errordata
-  err/pkcs8.errordata
-  err/rsa.errordata
-  err/ssl.errordata
-  err/trust_token.errordata
-  err/x509.errordata
-  err/x509v3.errordata
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/err
-)
 
 add_library(
   crypto
@@ -153,7 +122,7 @@ add_library(
   ec_extra/ec_derive.c
   ec_extra/hash_to_curve.c
   err/err.c
-  err_data.c
+  err/err_data.c
   engine/engine.c
   evp/evp.c
   evp/evp_asn1.c
