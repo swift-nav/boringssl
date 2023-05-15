@@ -487,33 +487,37 @@ target_include_directories(
     PRIVATE third_party/googletest
 )
 
-# Declare a dummy target to build all unit tests. Test targets should inject
-# themselves as dependencies next to the target definition.
-add_custom_target(all_tests)
+if(boringssl_BUILD_TESTS)
+  # Declare a dummy target to build all unit tests. Test targets should inject
+  # themselves as dependencies next to the target definition.
+  add_custom_target(all_tests)
 
-# On Windows, CRYPTO_TEST_DATA is too long to fit in command-line limits.
-# TODO(davidben): CMake 3.12 has a list(JOIN) command. Use that when we've
-# updated the minimum version.
-set(EMBED_TEST_DATA_ARGS "")
-foreach(arg ${CRYPTO_TEST_DATA})
-  set(EMBED_TEST_DATA_ARGS "${EMBED_TEST_DATA_ARGS}${arg}\n")
-endforeach()
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embed_test_data_args.txt"
-     "${EMBED_TEST_DATA_ARGS}")
+  # On Windows, CRYPTO_TEST_DATA is too long to fit in command-line limits.
+  # TODO(davidben): CMake 3.12 has a list(JOIN) command. Use that when we've
+  # updated the minimum version.
+  set(EMBED_TEST_DATA_ARGS "")
+  foreach(arg ${CRYPTO_TEST_DATA})
+    set(EMBED_TEST_DATA_ARGS "${EMBED_TEST_DATA_ARGS}${arg}\n")
+  endforeach()
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embed_test_data_args.txt"
+       "${EMBED_TEST_DATA_ARGS}")
 
-add_custom_command(
-  OUTPUT crypto_test_data.cc
-  COMMAND ${GO_EXECUTABLE} run util/embed_test_data.go -file-list
-          "${CMAKE_CURRENT_BINARY_DIR}/embed_test_data_args.txt" >
-          "${CMAKE_CURRENT_BINARY_DIR}/crypto_test_data.cc"
-  DEPENDS util/embed_test_data.go ${CRYPTO_TEST_DATA}
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  add_custom_command(
+    OUTPUT crypto_test_data.cc
+    COMMAND ${GO_EXECUTABLE} run util/embed_test_data.go -file-list
+            "${CMAKE_CURRENT_BINARY_DIR}/embed_test_data_args.txt" >
+            "${CMAKE_CURRENT_BINARY_DIR}/crypto_test_data.cc"
+    DEPENDS util/embed_test_data.go ${CRYPTO_TEST_DATA}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_library(crypto_test_data OBJECT crypto_test_data.cc)
+  add_library(crypto_test_data OBJECT crypto_test_data.cc)
+endif()
 
 add_subdirectory(crypto)
 add_subdirectory(ssl)
-add_subdirectory(ssl/test)
+if(orion_BUILD_TESTS)
+  add_subdirectory(ssl/test)
+endif()
 add_subdirectory(tool)
 add_subdirectory(util/fipstools)
 add_subdirectory(util/fipstools/acvp/modulewrapper)
@@ -540,52 +544,54 @@ if(RUST_BINDINGS)
   endif()
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  set(HANDSHAKER_ARGS "-handshaker-path" $<TARGET_FILE:handshaker>)
-endif()
+if(orion_BUILD_TESTS)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(HANDSHAKER_ARGS "-handshaker-path" $<TARGET_FILE:handshaker>)
+  endif()
 
-if(FIPS)
+  if(FIPS)
+    add_custom_target(
+      acvp_tests
+      COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/acvptool
+              boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool
+      COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
+              boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool/testmodulewrapper
+      COMMAND cd util/fipstools/acvp/acvptool/test &&
+              ${GO_EXECUTABLE} run check_expected.go
+              -tool ${CMAKE_CURRENT_BINARY_DIR}/acvptool
+              -module-wrappers modulewrapper:$<TARGET_FILE:modulewrapper>,testmodulewrapper:${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
+              -tests tests.json
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS modulewrapper
+      USES_TERMINAL)
+  
+    add_custom_target(
+      fips_specific_tests_if_any
+      DEPENDS acvp_tests
+    )
+  else()
+    add_custom_target(fips_specific_tests_if_any)
+  endif()
+
+  # Read util/go_tests.txt into a CMake variable.
+  file(READ util/go_tests.txt GO_TESTS)
+  string(REPLACE "\n" ";" GO_TESTS "${GO_TESTS}")
+  list(REMOVE_ITEM GO_TESTS "")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+               util/go_tests.txt)
+  
   add_custom_target(
-    acvp_tests
-    COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/acvptool
-            boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool
-    COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
-            boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool/testmodulewrapper
-    COMMAND cd util/fipstools/acvp/acvptool/test &&
-            ${GO_EXECUTABLE} run check_expected.go
-            -tool ${CMAKE_CURRENT_BINARY_DIR}/acvptool
-            -module-wrappers modulewrapper:$<TARGET_FILE:modulewrapper>,testmodulewrapper:${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
-            -tests tests.json
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS modulewrapper
-    USES_TERMINAL)
-
-  add_custom_target(
-    fips_specific_tests_if_any
-    DEPENDS acvp_tests
-  )
-else()
-  add_custom_target(fips_specific_tests_if_any)
+      run_tests
+      COMMAND ${GO_EXECUTABLE} test ${GO_TESTS}
+      COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
+              ${CMAKE_CURRENT_BINARY_DIR}
+      COMMAND cd ssl/test/runner &&
+              ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
+                ${HANDSHAKER_ARGS} ${RUNNER_ARGS}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS all_tests bssl_shim handshaker fips_specific_tests_if_any
+      USES_TERMINAL)
 endif()
-
-# Read util/go_tests.txt into a CMake variable.
-file(READ util/go_tests.txt GO_TESTS)
-string(REPLACE "\n" ";" GO_TESTS "${GO_TESTS}")
-list(REMOVE_ITEM GO_TESTS "")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             util/go_tests.txt)
-
-add_custom_target(
-    run_tests
-    COMMAND ${GO_EXECUTABLE} test ${GO_TESTS}
-    COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
-            ${CMAKE_CURRENT_BINARY_DIR}
-    COMMAND cd ssl/test/runner &&
-            ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
-              ${HANDSHAKER_ARGS} ${RUNNER_ARGS}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS all_tests bssl_shim handshaker fips_specific_tests_if_any
-    USES_TERMINAL)
 
 install_if_enabled(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
